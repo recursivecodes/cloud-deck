@@ -17,6 +17,9 @@ char PROGMEM userOcid[] = "";
 char PROGMEM compartmentOcid[] = "";
 char PROGMEM dbOcid[] = "";
 char PROGMEM qaInstanceOcid[] = "";
+char PROGMEM subnetOcid[] = "";
+char PROGMEM developerImageOcid[] = "";
+char PROGMEM availabilityDomain[] = "";
 
 char PROGMEM sshKey[] = "ssh-rsa AA[redacted].local";
 

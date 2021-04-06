@@ -25,8 +25,9 @@
  */
 #include "creds.h"
 #include "ArduinoJson.h"
-#include "mbedtls/base64.h"
 #include "oci.h"
+
+#define DEBUG_MODE true
 
 // Pin definitions
 #define BUTTON_PIN1 13
@@ -50,6 +51,7 @@ void toggleQaVm(bool start) {
   OciApiRequest vmRequest(iaasHost, vmPath, oci.HTTP_METHOD_POST, {}, 0, NULL);
   OciApiResponse vmResponse;
   oci.apiCall(vmRequest, vmResponse);
+  
   if( vmResponse.statusCode == 200 ) {
     StaticJsonDocument<200> vmFilter;
     vmFilter["displayName"] = true;
@@ -57,23 +59,27 @@ void toggleQaVm(bool start) {
     
     DynamicJsonDocument vmDoc(300);
     deserializeJson(vmDoc, vmResponse.response, DeserializationOption::Filter(vmFilter));
-    //Serial.println("VM State Response:");
-    //serializeJsonPretty(vmDoc, Serial);  
-
-    char vmMessage[200] = "*Updated VM:* \\n";
+    if(DEBUG_MODE){
+      Serial.println(F("VM State JSON Doc (Filtered):"));
+      serializeJsonPretty(vmDoc, Serial);  
+      Serial.println(); 
+    }
+    char vmMessage[200] = "*Updated VM:* \n";
     strcat(vmMessage, "Display Name: ");
     strcat(vmMessage, vmDoc["displayName"]);
-    strcat(vmMessage, "\\n");
+    strcat(vmMessage, "\n");
     strcat(vmMessage, "State: ");
     strcat(vmMessage, vmDoc["lifecycleState"]);
-    strcat(vmMessage, "\\n");
+    strcat(vmMessage, "\n");
     {
       sendNotification((char*) vmMessage);
     }
   }
   else {
-    Serial.println(vmResponse.statusCode);
-    Serial.println(vmResponse.errorMsg);
+    if(DEBUG_MODE){
+      Serial.println(vmResponse.statusCode);
+      Serial.println(vmResponse.errorMsg);
+    }
   }
 }
 
@@ -95,19 +101,21 @@ void toggleQaDb(bool start) {
     
     DynamicJsonDocument dbDoc(300);
     deserializeJson(dbDoc, dbResponse.response, DeserializationOption::Filter(dbFilter));
-    //Serial.println("DB State Response:");
-    //serializeJsonPretty(dbDoc, Serial);  
-
-    char dbMessage[200] = "*Updated DB:* \\n";
+    if(DEBUG_MODE){
+      Serial.println(F("DB State JSON Doc (Filtered):"));
+      serializeJsonPretty(dbDoc, Serial);   
+      Serial.println(); 
+    }
+    char dbMessage[200] = "*Updated DB:* \n";
     strcat(dbMessage, "Display Name: ");
     strcat(dbMessage, dbDoc["displayName"]);
-    strcat(dbMessage, "\\n");
+    strcat(dbMessage, "\n");
     strcat(dbMessage, "DB Name: ");
     strcat(dbMessage, dbDoc["dbName"]);
-    strcat(dbMessage, "\\n");
+    strcat(dbMessage, "\n");
     strcat(dbMessage, "State: ");
     strcat(dbMessage, dbDoc["lifecycleState"]);
-    strcat(dbMessage, "\\n");
+    strcat(dbMessage, "\n");
     {
       sendNotification((char*) dbMessage);
     }
@@ -120,8 +128,10 @@ void toggleQaDb(bool start) {
       strcat(dbErr, start ? "started." : "stopped.");
       sendNotification((char*) dbErr);
     }
-    Serial.println(dbResponse.statusCode);
-    Serial.println(dbResponse.errorMsg);
+    if(DEBUG_MODE){
+      Serial.println(dbResponse.statusCode);
+      Serial.println(dbResponse.errorMsg);
+    }
   }
 }
 void listInstances() {
@@ -135,38 +145,42 @@ void listInstances() {
 
     StaticJsonDocument<300> filter;
     filter[0]["displayName"] = true;
-    //filter[0]["compartmentId"] = true;
+    filter[0]["compartmentId"] = false;
     filter[0]["shape"] = true;
     filter[0]["id"] = true;
     filter[0]["lifecycleState"] = true;
     DynamicJsonDocument doc(2000);
     deserializeJson(doc, instanceResponse.response, DeserializationOption::Filter(filter));
-    //Serial.println("List Instance Response:");
-    //serializeJsonPretty(doc, Serial);  
-
+    if(DEBUG_MODE){
+      Serial.println(F("List Instance JSON Doc (Filtered):"));
+      serializeJsonPretty(doc, Serial);    
+      Serial.println();
+    }
     JsonArray arr = doc.as<JsonArray>();
 
-    char message[] = "*VM List (Max: 10 Recent):* \\n";
+    char message[] = "*VM List (Max: 10 Recent):* \n";
     sendNotification(message);
     
     for (JsonVariant value : arr) {
       char vm[200] = "";
       strcat(vm, "Name: ");
       strcat(vm, value["displayName"].as<char*>());
-      strcat(vm, "\\nOCID: ");
+      strcat(vm, "\nOCID: ");
       strcat(vm, value["id"].as<char*>());
-      strcat(vm, "\\nShape: ");
+      strcat(vm, "\nShape: ");
       strcat(vm, value["shape"].as<char*>());
-      strcat(vm, "\\nState: ");
+      strcat(vm, "\nState: ");
       strcat(vm, value["lifecycleState"].as<char*>());
-      strcat(vm, "\\n");
+      strcat(vm, "\n");
       sendNotification(vm);
     }
     
   }
   else {
-    Serial.println(instanceResponse.statusCode);
-    Serial.println(instanceResponse.errorMsg);
+    if(DEBUG_MODE){
+      Serial.println(instanceResponse.statusCode);
+      Serial.println(instanceResponse.errorMsg);
+    }
   }
 }
 
@@ -176,16 +190,16 @@ void launchInstance() {
   char request[900];
   {
     DynamicJsonDocument requestJson(900);
-    requestJson["availabilityDomain"] = "odti:PHX-AD-1";
+    requestJson["availabilityDomain"] = availabilityDomain;
     requestJson["compartmentId"] = compartmentOcid;
     requestJson["displayName"] = "cloud-deck-vm";
-    requestJson["imageId"] = "ocid1.image.oc1..aaaaaaaasoykfuuflr4ks6zxxmj5astynromw3f523gcylgdonlwe4dbvaaq";  // OCI Developer Image
+    requestJson["imageId"] = developerImageOcid;  // OCI Developer Image
     requestJson["shape"] = "VM.Standard.E2.2";
     JsonObject metadata = requestJson.createNestedObject("metadata");
     metadata["ssh_authorized_keys"] = sshKey;
     JsonObject createVnicDetails = requestJson.createNestedObject("createVnicDetails");
     createVnicDetails["assignPublicIp"] = true;
-    createVnicDetails["subnetId"] = "ocid1.subnet.oc1.phx.aaaaaaaapixvxoox7bwl3jfnti2jphizpaq42u7pjutyqng7zth7ur3xkuoa";
+    createVnicDetails["subnetId"] = subnetOcid;
     serializeJson(requestJson, request);
   }
   OciApiRequest instanceRequest(iaasHost, instancePath, oci.HTTP_METHOD_POST, {}, 0, NULL, request);
@@ -201,27 +215,31 @@ void launchInstance() {
     
     DynamicJsonDocument doc(300);
     deserializeJson(doc, instanceResponse.response, DeserializationOption::Filter(filter));
-    //Serial.println("Launch Instance Response:");
-    //serializeJsonPretty(doc, Serial);  
-
-    char message[200] = "*Launched VM:* \\n";
+    if(DEBUG_MODE){
+      Serial.println(F("Launch Instance JSON Doc (Filtered):"));
+      serializeJsonPretty(doc, Serial);  
+      Serial.println();  
+    }
+    char message[200] = "*Launched VM:* \n";
     strcat(message, "Display Name: ");
     strcat(message, doc["displayName"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
     strcat(message, "OCID: ");
     strcat(message, doc["id"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
     strcat(message, "State: ");
     strcat(message, doc["lifecycleState"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
     
     {
       sendNotification((char*) message);
     }
   }
   else {
-    Serial.println(instanceResponse.statusCode);
-    Serial.println(instanceResponse.errorMsg);
+    if(DEBUG_MODE){
+      Serial.println(instanceResponse.statusCode);
+      Serial.println(instanceResponse.errorMsg);
+    }
   }
 }
 
@@ -244,38 +262,39 @@ void getDbInfo() {
 
     DynamicJsonDocument doc(1000);
     deserializeJson(doc, dbInfoResponse.response, DeserializationOption::Filter(filter));
-    //Serial.println("DB Info Response:");
-    //serializeJsonPretty(doc, Serial);  
-    char message[320] = "*DB Info:* \\n";
+    if(DEBUG_MODE){
+      Serial.println(F("DB Info JSON Doc (Filtered):"));
+      serializeJsonPretty(doc, Serial);  
+      Serial.println();  
+    }
+    char message[320] = "*DB Info:* \n";
     strcat(message, "Display Name: ");
     strcat(message, doc["displayName"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
     strcat(message, "DB Name: ");
     strcat(message, doc["dbName"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
     strcat(message, "DB OCID: ");
     strcat(message, doc["id"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
     char cores[2];
     sprintf(cores, "%d", doc["cpuCoreCount"].as<int>());
     char storage[2];
     sprintf(storage, "%d", doc["dataStorageSizeInTBs"].as<int>());
     strcat(message, "Cores: ");
     strcat(message, cores);
-    strcat(message, "\\n");
+    strcat(message, "\n");
     strcat(message, "Storage Size (TB): ");
     strcat(message, storage);
-    strcat(message, "\\n");
-    /*
-    strcat(message, "Console URL: ");
-    strcat(message, doc[0]["serviceConsoleUrl"]);
-    strcat(message, "\\n");
-    */
+    strcat(message, "\n");
+    
     sendNotification((char*) message);
   }
   else {
-    Serial.println(dbInfoResponse.statusCode);
-    Serial.println(dbInfoResponse.errorMsg);
+    if(DEBUG_MODE){
+      Serial.println(dbInfoResponse.statusCode);
+      Serial.println(dbInfoResponse.errorMsg);
+    }
   }
 }
 
@@ -290,26 +309,36 @@ void getRecentDbBackup() {
   oci.apiCall(dbBackupRequest, dbBackupResponse);
 
   if( dbBackupResponse.statusCode == 200 ) {
-    DynamicJsonDocument doc(1200);
-    deserializeJson(doc, dbBackupResponse.response);
-    //Serial.println("DB Backup Response:");
-    //serializeJsonPretty(doc, Serial);  
-    char message[220] = "*DB Backup Info:* \\n";
+    StaticJsonDocument<200> filter;
+    filter[0]["autonomousDatabaseId"] = true;
+    filter[0]["displayName"] = true;
+    filter[0]["type"] = true;
+    
+    DynamicJsonDocument doc(300);
+    deserializeJson(doc, dbBackupResponse.response, DeserializationOption::Filter(filter));
+    if(DEBUG_MODE){
+      Serial.println(F("DB Backup JSON Doc (Filtered):"));
+      serializeJsonPretty(doc, Serial);  
+      Serial.println();  
+    }
+    char message[220] = "*DB Backup Info:* \n";
     strcat(message, "DB OCID: ");
     strcat(message, doc[0]["autonomousDatabaseId"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
     strcat(message, "Last Backup At: ");
     strcat(message, doc[0]["displayName"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
     strcat(message, "Type: ");
     strcat(message, doc[0]["type"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
 
     sendNotification((char*) message);
   }
   else {
-    Serial.println(dbBackupResponse.statusCode);
-    Serial.println(dbBackupResponse.errorMsg);
+    if(DEBUG_MODE){
+      Serial.println(dbBackupResponse.statusCode);
+      Serial.println(dbBackupResponse.errorMsg);
+    }
   }
 }
 
@@ -327,27 +356,32 @@ void getUserKeys() {
     filter[0]["fingerprint"] = true;
     DynamicJsonDocument keyDoc(400);
     deserializeJson(keyDoc, keyResponse.response, DeserializationOption::Filter(filter));
-    //Serial.println("User Keys Response:");
-    //serializeJsonPretty(keyDoc, Serial);  
+    if(DEBUG_MODE){
+      Serial.println(F("User Keys JSON Doc (Filtered):"));
+      serializeJsonPretty(keyDoc, Serial);  
+      Serial.println();  
+    }
     JsonArray keys = keyDoc.as<JsonArray>();
 
-    char message[] = "*User API Keys:* \\n";
+    char message[] = "*User API Keys:* \n";
     sendNotification((char*) message);
     for (JsonVariant key : keys) {    
       char keyMsg[200] = "";
       strcat(keyMsg, "Key Fingerprint: ");
       strcat(keyMsg, key["fingerprint"].as<char*>());
-      strcat(keyMsg, "\\n");
+      strcat(keyMsg, "\n");
       strcat(keyMsg, "Created: ");
       strcat(keyMsg, key["timeCreated"].as<char*>());
-      strcat(keyMsg, "\\n");
+      strcat(keyMsg, "\n");
       sendNotification((char*) keyMsg);
     }
     
   }
   else {
-    Serial.println(keyResponse.statusCode);
-    Serial.println(keyResponse.errorMsg);
+    if(DEBUG_MODE){
+      Serial.println(keyResponse.statusCode);
+      Serial.println(keyResponse.errorMsg);
+    }
   }
 }
 
@@ -361,38 +395,41 @@ void getUserInfo() {
   oci.apiCall(userInfoRequest, userInfoResponse);
 
   if( userInfoResponse.statusCode == 200 ) {
-    DynamicJsonDocument doc(800);
-    deserializeJson(doc, userInfoResponse.response);
-
-    char message[520] = "*User Info:* \\n";
+    StaticJsonDocument<300> filter;
+    filter["name"] = true;
+    filter["description"] = true;
+    filter["id"] = true;
+    filter["isMfaActivated"] = true;
+    
+    DynamicJsonDocument doc(300);
+    deserializeJson(doc, userInfoResponse.response, DeserializationOption::Filter(filter));
+    if(DEBUG_MODE){
+      Serial.println(F("User Info JSON Doc (Filtered):"));
+      serializeJsonPretty(doc, Serial);  
+      Serial.println();  
+    }
+    char message[520] = "*User Info:* \n";
     strcat(message, "Username: ");
     strcat(message, doc["name"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
     strcat(message, "Name: ");
     strcat(message, doc["description"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
     strcat(message, "OCID: ");
     strcat(message, doc["id"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
     strcat(message, "Using MFA: ");
     const char* mfa = (doc["isMfaActivated"] ? "Yes" : "No");
     strcat(message, mfa);
-    strcat(message, "\\n");
+    strcat(message, "\n");
       
-    char keyPath[200] = "/20160918/users/";
-    strcat(keyPath, doc["id"]);
-    strcat(keyPath, "/apiKeys/");
-    OciApiRequest keyRequest(iamHost, keyPath, oci.HTTP_METHOD_GET, {}, 0, NULL);
-    OciApiResponse keyResponse;
-    oci.apiCall(keyRequest, keyResponse);
-    //Serial.println("User Info Response:");
-    //serializeJsonPretty(doc, Serial);  
-
     sendNotification((char*) message);
   }
   else {
-    Serial.println(userInfoResponse.statusCode);
-    Serial.println(userInfoResponse.errorMsg);
+    if(DEBUG_MODE){
+      Serial.println(userInfoResponse.statusCode);
+      Serial.println(userInfoResponse.errorMsg);
+    }
   }
 }
 
@@ -401,31 +438,46 @@ void getTenancyInfo() {
   strcat(tenancyInfoPath, tenancyOcid);
   
   OciApiRequest tenancyInfoRequest(iamHost, tenancyInfoPath, oci.HTTP_METHOD_GET, {}, 0, NULL);
-  Header resHeaders[] = { {"opc-request-id"} };
-  OciApiResponse tenancyInfoResponse(resHeaders, 1);
+  OciApiResponse tenancyInfoResponse;
   oci.apiCall(tenancyInfoRequest, tenancyInfoResponse);
   if( tenancyInfoResponse.statusCode == 200 ) {
-    DynamicJsonDocument doc(800);
-    deserializeJson(doc, tenancyInfoResponse.response);
-    //Serial.println("Tenancy Info Response:");
-    //serializeJsonPretty(doc, Serial);  
-    //Serial.println("Response Header: ");
-    //Serial.println(tenancyInfoResponse.responseHeaders[0].headerValue);
-    char message[200] = "*Tenancy Info:* \\n";
+    StaticJsonDocument<300> filter;
+    filter["name"] = true;
+    filter["id"] = true;
+    filter["homeRegion"] = true;
+    filter["homeRegionKey"] = false;
+    filter["compartmentId"] = false;
+    filter["description"] = false;
+    filter["oracleMyServicesIdentifier"] = true;
+    filter["timeCreated"] = false;
+    
+    DynamicJsonDocument doc(300);
+    deserializeJson(doc, tenancyInfoResponse.response, DeserializationOption::Filter(filter));
+    if(DEBUG_MODE){
+      Serial.println(F("Tenancy Info JSON Doc (Filtered):"));
+      serializeJsonPretty(doc, Serial);  
+      Serial.println();  
+    }
+    char message[250] = "*Tenancy Info:* \n";
     strcat(message, "Name: ");
     strcat(message, doc["name"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
     strcat(message, "OCID: ");
     strcat(message, doc["id"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
     strcat(message, "Home Region: ");
     strcat(message, doc["homeRegion"]);
-    strcat(message, "\\n");
+    strcat(message, "\n");
+    strcat(message, "Support ID: ");
+    strcat(message, doc["oracleMyServicesIdentifier"]);
+    strcat(message, "\n");
     sendNotification((char*) message);
   }
   else {
-    Serial.println(tenancyInfoResponse.statusCode);
-    Serial.println(tenancyInfoResponse.errorMsg);
+    if(DEBUG_MODE){
+      Serial.println(tenancyInfoResponse.statusCode);
+      Serial.println(tenancyInfoResponse.errorMsg);
+    }
   }
 }
 
@@ -433,9 +485,15 @@ void sendNotification(char* notification) {
   char notificationPath[150] = "/20181201/topics/";
   strcat(notificationPath, notificationTopicOcid);
   strcat(notificationPath, "/messages");
-  char message[350] = "{ \"title\": \"Cloud Deck Notification\", \"body\": \"";
-  strcat(message, notification);
-  strcat(message, "\" }");
+  
+  char message[350] = "";
+  {
+    DynamicJsonDocument messageJson(350);
+    messageJson["title"] = "Cloud Deck Notification";
+    messageJson["body"] = notification;
+    serializeJson(messageJson, message);
+  }
+  
   OciApiRequest sendNotificationRequest(notificationHost, notificationPath, oci.HTTP_METHOD_POST, {}, 0, NULL, message);
   OciApiResponse sendNotificationResponse;
   oci.apiCall(sendNotificationRequest, sendNotificationResponse);
@@ -443,11 +501,17 @@ void sendNotification(char* notification) {
   if( sendNotificationResponse.statusCode == 202 ) {
     DynamicJsonDocument doc(500);
     deserializeJson(doc, sendNotificationResponse.response);
-    //Serial.println("Send Notification Response:");
-    //serializeJsonPretty(doc, Serial);  
+    if(DEBUG_MODE){
+      Serial.println(F("Send Notification Response:"));
+      serializeJsonPretty(doc, Serial);  
+      Serial.println();
+    }
   }
   else {
-    Serial.println(sendNotificationResponse.errorMsg);
+    if(DEBUG_MODE){
+      Serial.println(sendNotificationResponse.statusCode);
+      Serial.println(sendNotificationResponse.errorMsg);
+    }
   }
 }
 
